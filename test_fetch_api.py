@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 
 import requests
 
-from fetch_api import ApiError, fetch_item, fetch_renewal
+from fetch_api import MAX_ATTEMPTS, ApiError, fetch_item, fetch_renewal
 
 FAKE_KEY = "FAKE-KEY-FOR-TEST"
 
@@ -22,7 +22,30 @@ def normal(items):
 
 
 @patch.dict(os.environ, {"DATA_GO_KR_API_KEY": FAKE_KEY})
+@patch("fetch_api.time.sleep", Mock())
 class FetchItemTest(unittest.TestCase):
+    @patch("fetch_api.requests.get")
+    def test_retries_after_timeout(self, get):
+        get.side_effect = [requests.ReadTimeout(), fake_response(normal([{"ITEM_SEQ": "222"}]))]
+        self.assertEqual(fetch_item("222"), {"ITEM_SEQ": "222"})
+        self.assertEqual(get.call_count, 2)
+
+    @patch("fetch_api.requests.get")
+    def test_gives_up_after_max_attempts(self, get):
+        get.side_effect = requests.ReadTimeout()
+        with self.assertRaises(ApiError):
+            fetch_item("222")
+        self.assertEqual(get.call_count, MAX_ATTEMPTS)
+
+    @patch("fetch_api.requests.get")
+    def test_http_error_is_not_retried(self, get):
+        response = Mock()
+        response.raise_for_status.side_effect = requests.HTTPError()
+        get.return_value = response
+        with self.assertRaises(ApiError):
+            fetch_item("222")
+        self.assertEqual(get.call_count, 1)
+
     @patch("fetch_api.requests.get")
     def test_returns_exact_item(self, get):
         get.return_value = fake_response(normal([{"ITEM_SEQ": "111"}, {"ITEM_SEQ": "222"}]))

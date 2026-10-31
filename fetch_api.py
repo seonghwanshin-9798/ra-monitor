@@ -1,6 +1,7 @@
 """식약처 허가정보 API에서 품목 정보를 받아오는 모듈."""
 
 import os
+import time
 
 import requests
 from dotenv import load_dotenv
@@ -13,7 +14,9 @@ RENEWAL_URL = (
     "https://apis.data.go.kr/1471000/DrugPrdlstVldPrdInfoService01"
     "/getDrugPrdlstVldPrdInfoService01"
 )
-TIMEOUT_SECONDS = 30
+TIMEOUT_SECONDS = 60
+MAX_ATTEMPTS = 3
+RETRY_WAIT_SECONDS = 5
 NUM_OF_ROWS = 100
 
 
@@ -29,6 +32,21 @@ def get_api_key():
     return key
 
 
+def get_json(url, params, item_seq):
+    """API를 호출합니다. 허가 API는 응답이 가끔 늦어 시간 초과와 연결 오류만 다시 시도합니다."""
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            response = requests.get(url, params=params, timeout=TIMEOUT_SECONDS)
+            response.raise_for_status()
+            return response.json()
+        except requests.RequestException as error:
+            temporary = isinstance(error, (requests.Timeout, requests.ConnectionError))
+            if not temporary or attempt == MAX_ATTEMPTS:
+                # 원래 오류 메시지에는 API 키가 포함된 주소가 들어 있을 수 있어 종류만 남깁니다.
+                raise ApiError(f"품목 {item_seq}: 통신 실패 ({type(error).__name__})") from None
+            time.sleep(RETRY_WAIT_SECONDS)
+
+
 def request_item(url, item_seq, query):
     """API를 호출해 응답 중 품목기준코드가 일치하는 품목 하나를 돌려줍니다."""
     params = {
@@ -38,13 +56,7 @@ def request_item(url, item_seq, query):
         "type": "json",
         **query,
     }
-    try:
-        response = requests.get(url, params=params, timeout=TIMEOUT_SECONDS)
-        response.raise_for_status()
-        data = response.json()
-    except requests.RequestException as error:
-        # 원래 오류 메시지에는 API 키가 포함된 주소가 들어 있을 수 있어 종류만 남깁니다.
-        raise ApiError(f"품목 {item_seq}: 통신 실패 ({type(error).__name__})") from None
+    data = get_json(url, params, item_seq)
 
     header = data.get("header", {})
     if header.get("resultCode") != "00":
