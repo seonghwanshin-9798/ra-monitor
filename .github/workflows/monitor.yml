@@ -1,0 +1,57 @@
+name: 허가 모니터링
+
+on:
+  schedule:
+    - cron: "7 0 * * 1" # 매주 월요일 00:07 UTC (한국 시간 오전 9시 7분)
+  workflow_dispatch: # Actions 화면에서 직접 실행할 수 있게 합니다.
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: monitor
+
+env:
+  TZ: Asia/Seoul
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.15"
+
+      - run: pip install -r requirements.txt
+
+      # 일부 품목이 실패해도 이슈는 등록되도록 다음 단계로 넘어갑니다.
+      - name: 모니터링 실행
+        id: monitor
+        continue-on-error: true
+        run: python main.py
+        env:
+          DATA_GO_KR_API_KEY: ${{ secrets.DATA_GO_KR_API_KEY }}
+
+      - name: 이슈 등록
+        run: gh issue create --title "$(cat report_title.txt)" --body-file report.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      # 이슈 등록이 성공해야 여기까지 옵니다. 실패하면 저장본이 커밋되지 않아 다음 실행 때 다시 알립니다.
+      # last_run.txt는 매주 커밋을 남겨 60일 무활동으로 예약 실행이 멈추는 것을 막습니다.
+      - name: 저장본 커밋
+        run: |
+          date +%F > last_run.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add snapshots last_run.txt
+          git diff --cached --quiet || git commit -m "모니터링 결과 저장 $(date +%F)"
+          git push
+
+      - name: 실패 품목이 있으면 실행을 실패로 표시
+        if: steps.monitor.outcome == 'failure'
+        run: exit 1

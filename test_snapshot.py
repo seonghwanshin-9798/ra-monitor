@@ -5,7 +5,14 @@ import unittest
 from pathlib import Path
 
 from diff_text import MODIFIED
-from main import format_result, read_items
+from main import (
+    MAX_BODY_CHARS,
+    build_body,
+    build_title,
+    format_result,
+    latest_change_reason,
+    read_items,
+)
 from snapshot import (
     CHANGED,
     FIRST_RUN,
@@ -82,6 +89,24 @@ class MainHelpersTest(unittest.TestCase):
             save_snapshot(check_item(item(), folder).snapshot, folder)
             result = check_item(item(warning=None), folder)
         self.assertIn("[경고] 사용상 주의사항", format_result(result))
+
+    def test_latest_change_reason_keeps_all_reasons_of_latest_date(self):
+        history = "주의사항변경(부작용포함), 2026-03-23/성상변경, 2026-03-23/용법변경, 2019-09-09"
+        self.assertEqual(latest_change_reason(history), "주의사항변경(부작용포함), 성상변경")
+
+    def test_latest_change_reason_handles_empty(self):
+        self.assertIsNone(latest_change_reason(None))
+        self.assertIsNone(latest_change_reason(""))
+
+    def test_title_shows_failures_only_when_present(self):
+        self.assertEqual(build_title(1, 0, 0), "[허가 모니터링] 변경 1건 / 갱신 임박 0건")
+        self.assertEqual(build_title(0, 2, 3), "[허가 모니터링] 변경 0건 / 갱신 임박 2건 / 실패 3건")
+
+    def test_long_body_is_cut_and_code_block_is_closed(self):
+        body = build_body(["가" * (MAX_BODY_CHARS + 100)])
+        self.assertLess(len(body), 65536)
+        self.assertIn("잘렸습니다", body)
+        self.assertTrue(body.endswith("````\n"))
 
 
 if __name__ == "__main__":

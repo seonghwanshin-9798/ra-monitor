@@ -3,7 +3,7 @@
 import unittest
 from datetime import date
 
-from renewal import WARNING_DAYS, format_renewal, parse_date
+from renewal import WARNING_DAYS, format_renewal, needs_attention, parse_date
 
 TODAY = date(2026, 1, 1)
 
@@ -23,6 +23,16 @@ class ParseDateTest(unittest.TestCase):
     def test_empty_or_wrong_values(self):
         for value in (None, "", "미정"):
             self.assertIsNone(parse_date(value))
+
+
+class NeedsAttentionTest(unittest.TestCase):
+    def test_soon_and_overdue_need_attention(self):
+        self.assertTrue(needs_attention(record(days_later(WARNING_DAYS)), TODAY))
+        self.assertTrue(needs_attention(record(days_later(-1)), TODAY))
+
+    def test_far_or_unknown_deadline_does_not(self):
+        self.assertFalse(needs_attention(record(days_later(WARNING_DAYS + 1)), TODAY))
+        self.assertFalse(needs_attention(record(""), TODAY))
 
 
 class FormatRenewalTest(unittest.TestCase):
